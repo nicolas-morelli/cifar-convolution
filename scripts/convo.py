@@ -21,7 +21,7 @@ def modelbuilder(hp, ninputs, noutputs):
     nsteps = hp.Int('nsteps', min_value=1, max_value=5, step=1)
     nlengthconv = hp.Int('nlengthconv', min_value=1, max_value=5, step=1)
     # kernelsize = hp.Int('kernelsize', min_value=6, max_value=12, step=1)
-    filters = hp.Int('filters', min_value=42, max_value=82, step=2)
+    filters = hp.Int('filters', min_value=50, max_value=200, step=2)
     filterscale = hp.Float('filterscale', min_value=1.0, max_value=3.0, step=0.1)
     padding = hp.Choice('padding', ['valid', 'same'])
     strides = 1
@@ -30,7 +30,7 @@ def modelbuilder(hp, ninputs, noutputs):
     # psize = hp.Int('psize', min_value=2, max_value=2)
 
     nlength = hp.Int('nlength', min_value=2, max_value=6, step=1)
-    nwidth = hp.Int('nwidth', min_value=60, max_value=300, step=5)
+    nwidth = hp.Int('nwidth', min_value=100, max_value=1000, step=5)
 
     input_ = tf.keras.layers.Input(shape=ninputs)
 
@@ -73,7 +73,7 @@ def modelbuilder(hp, ninputs, noutputs):
     output = outputlayer(mid)
 
     model = tf.keras.Model(inputs=[input_], outputs=[output])
-    opt = tf.keras.optimizers.Nadam(learning_rate=hp.Float('learning_rate', min_value=0.00001, max_value=0.01, step=0.000005))
+    opt = tf.keras.optimizers.Nadam(learning_rate=hp.Float('learning_rate', min_value=0.0001, max_value=0.01, step=0.00005))
 
     model.compile(loss='sparse_categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
 
