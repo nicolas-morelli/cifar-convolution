@@ -4,30 +4,19 @@ import tensorflow as tf
 import keras_tuner as kt
 
 
-def conv_output_size(input_size, kernel_size, strides=1, padding="valid"):
-    if padding == "valid":
-        z = input_size - kernel_size + strides
-        output_size = z // strides
-        num_ignored = z % strides
-        return output_size, num_ignored
-    else:
-        output_size = (input_size - 1) // strides + 1
-        num_padded = (output_size - 1) * strides + kernel_size - input_size
-        return output_size, num_padded
-
-
 def modelbuilder(hp, ninputs, noutputs):
 
     nsteps = hp.Int('nsteps', min_value=1, max_value=5, step=1)
     nlengthconv = hp.Int('nlengthconv', min_value=1, max_value=5, step=1)
-    # kernelsize = hp.Int('kernelsize', min_value=6, max_value=12, step=1)
-    filters = hp.Int('filters', min_value=50, max_value=200, step=2)
-    filterscale = hp.Float('filterscale', min_value=1.0, max_value=3.0, step=0.1)
+    kernelsize = hp.Int('kernelsize', min_value=2, max_value=8, step=1)
+    startkernelsize = hp.Int('startkernelsize', min_value=6, max_value=20, step=1)
+    filters = hp.Int('filters', min_value=50, max_value=250, step=2)
+    filterscale = hp.Float('filterscale', min_value=1.0, max_value=4.0, step=0.1)
     padding = hp.Choice('padding', ['valid', 'same'])
     strides = 1
 
-    pool = hp.Boolean('pool')
-    # psize = hp.Int('psize', min_value=2, max_value=2)
+    pool = True  # hp.Boolean('pool')
+    psize = hp.Int('psize', min_value=2, max_value=3)
 
     nlength = hp.Int('nlength', min_value=2, max_value=6, step=1)
     nwidth = hp.Int('nwidth', min_value=100, max_value=1000, step=5)
@@ -40,19 +29,18 @@ def modelbuilder(hp, ninputs, noutputs):
     for n in range(0, nsteps):
         for n2 in range(0, nlengthconv):
             bn = tf.keras.layers.BatchNormalization()
-            conv = tf.keras.layers.Conv2D(activation='leaky_relu', kernel_initializer='he_normal', filters=filters, kernel_size=3, padding=padding, strides=strides)
 
             if n + n2 == 0:
-                bn = tf.keras.layers.BatchNormalization()
-                conv = tf.keras.layers.Conv2D(activation='leaky_relu', kernel_initializer='he_normal', filters=filters, kernel_size=7, padding=padding, strides=strides)
+                conv = tf.keras.layers.Conv2D(activation='leaky_relu', kernel_initializer='he_normal', filters=filters, kernel_size=startkernelsize, padding=padding, strides=strides)
                 midconv = conv(bn(resc))
             else:
+                conv = tf.keras.layers.Conv2D(activation='leaky_relu', kernel_initializer='he_normal', filters=filters, kernel_size=kernelsize, padding=padding, strides=strides)
                 midconv = conv(bn(midconv))
 
-        filters = filterscale * filters
+        filters = round(filterscale * filters)
 
         if pool:
-            pool = tf.keras.layers.MaxPool2D(pool_size=2)
+            pool = tf.keras.layers.MaxPool2D(pool_size=psize)
             midconv = pool(midconv)
 
     fla = tf.keras.layers.Flatten()
@@ -86,13 +74,28 @@ def main():
 
     modelbuilderparc = functools.partial(modelbuilder, ninputs=X_train[0].shape, noutputs=len(np.unique(y_train)))
 
-    random_search_tuner = kt.BayesianOptimization(modelbuilderparc, objective='val_accuracy', overwrite=True, max_trials=25, seed=47)
+    trials = 15
+
+    tuner = kt.Hyperband(hypermodel=modelbuilderparc,
+                         max_epochs=500,
+                         factor=3,
+                         hyperband_iterations=1,
+                         objective='val_accuracy',
+                         overwrite=True,
+                         executions_per_trial=trials,
+                         max_consecutive_failed_trials=trials,
+                         project_name='Convo',
+                         seed=47)
+
     es = tf.keras.callbacks.EarlyStopping(patience=5, restore_best_weights=True)
-    random_search_tuner.search(X_train, y_train, batch_size=64, validation_data=(X_test, y_test), callbacks=[es], epochs=500)
 
-    bestmodel = random_search_tuner.get_best_models(num_models=1)[0]
+    tuner.search(X_train, y_train, batch_size=64, validation_data=(X_test, y_test), callbacks=[es], epochs=500, verbose=2)
 
-    best_hp = random_search_tuner.get_best_hyperparameters()[0]
+    bestmodel = tuner.get_best_models(num_models=1)[0]
+
+    best_hp = tuner.get_best_hyperparameters()[0]
+
+    bestmodel.save('convmodel.keras')
 
 
 if __name__ == '__main__':
