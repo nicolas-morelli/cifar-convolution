@@ -1,82 +1,85 @@
-import functools
 import numpy as np
 import tensorflow as tf
 import keras_tuner as kt
 
 
-def modelbuilder(hp, ninputs, noutputs):
+class HyperNet(kt.HyperModel):
 
-    nsteps = hp.Int('nsteps', min_value=1, max_value=5, step=1)
-    nlengthconv = hp.Int('nlengthconv', min_value=1, max_value=5, step=1)
-    kernelsize = hp.Int('kernelsize', min_value=2, max_value=8, step=1)
-    startkernelsize = hp.Int('startkernelsize', min_value=6, max_value=20, step=1)
-    filters = hp.Int('filters', min_value=50, max_value=250, step=2)
-    filterscale = hp.Float('filterscale', min_value=1.0, max_value=4.0, step=0.1)
-    padding = hp.Choice('padding', ['valid', 'same'])
-    strides = 1
+    def __init__(self, **kwargs):
+        self.ninputs = kwargs.get('ninputs')
+        self.noutputs = kwargs.get('noutputs')
+        super().__init__()
 
-    pool = True  # hp.Boolean('pool')
-    psize = hp.Int('psize', min_value=2, max_value=3)
+    def build(self, hp):
+        nsteps = hp.Int('nsteps', min_value=1, max_value=5, step=1)
+        nlengthconv = hp.Int('nlengthconv', min_value=1, max_value=5, step=1)
+        kernelsize = hp.Int('kernelsize', min_value=2, max_value=8, step=1)
+        startkernelsize = hp.Int('startkernelsize', min_value=6, max_value=20, step=1)
+        filters = hp.Int('filters', min_value=50, max_value=250, step=2)
+        filterscale = hp.Float('filterscale', min_value=1.0, max_value=4.0, step=0.1)
+        padding = hp.Choice('padding', ['valid', 'same'])
+        strides = 1
 
-    nlength = hp.Int('nlength', min_value=2, max_value=6, step=1)
-    nwidth = hp.Int('nwidth', min_value=100, max_value=1000, step=5)
+        pool = True  # hp.Boolean('pool')
+        psize = hp.Int('psize', min_value=2, max_value=3)
 
-    input_ = tf.keras.layers.Input(shape=ninputs)
+        nlength = hp.Int('nlength', min_value=2, max_value=6, step=1)
+        nwidth = hp.Int('nwidth', min_value=100, max_value=1000, step=5)
 
-    rsc = tf.keras.layers.Rescaling(scale=1 / 255)
-    resc = rsc(input_)
+        input_ = tf.keras.layers.Input(shape=self.ninputs)
 
-    for n in range(0, nsteps):
-        for n2 in range(0, nlengthconv):
+        rsc = tf.keras.layers.Rescaling(scale=1 / 255)
+        resc = rsc(input_)
+
+        for n in range(0, nsteps):
+            for n2 in range(0, nlengthconv):
+                bn = tf.keras.layers.BatchNormalization()
+
+                if n + n2 == 0:
+                    conv = tf.keras.layers.Conv2D(activation='relu', kernel_initializer='he_normal', filters=filters, kernel_size=startkernelsize, padding=padding, strides=strides)
+                    midconv = conv(bn(resc))
+                else:
+                    conv = tf.keras.layers.Conv2D(activation='relu', kernel_initializer='he_normal', filters=filters, kernel_size=kernelsize, padding=padding, strides=strides)
+                    midconv = conv(bn(midconv))
+
+            filters = round(filterscale * filters)
+
+            if pool:
+                pool = tf.keras.layers.MaxPool2D(pool_size=psize)
+                midconv = pool(midconv)
+
+        fla = tf.keras.layers.Flatten()
+        midconv = fla(midconv)
+
+        for n in range(0, nlength):
             bn = tf.keras.layers.BatchNormalization()
+            midlayer = tf.keras.layers.Dense(nwidth, activation='leaky_relu', kernel_initializer='he_normal', use_bias=False)
+            do = tf.keras.layers.Dropout(rate=hp.Float('dropout_rate', min_value=0.0, max_value=0.6, step=0.05))
 
-            if n + n2 == 0:
-                conv = tf.keras.layers.Conv2D(activation='leaky_relu', kernel_initializer='he_normal', filters=filters, kernel_size=startkernelsize, padding=padding, strides=strides)
-                midconv = conv(bn(resc))
+            if n == 0:
+                mid = do(midlayer(bn(midconv)))
             else:
-                conv = tf.keras.layers.Conv2D(activation='leaky_relu', kernel_initializer='he_normal', filters=filters, kernel_size=kernelsize, padding=padding, strides=strides)
-                midconv = conv(bn(midconv))
+                mid = do(midlayer(bn(mid)))
 
-        filters = round(filterscale * filters)
+        outputlayer = tf.keras.layers.Dense(self.noutputs, activation='softmax')
 
-        if pool:
-            pool = tf.keras.layers.MaxPool2D(pool_size=psize)
-            midconv = pool(midconv)
+        output = outputlayer(mid)
 
-    fla = tf.keras.layers.Flatten()
-    midconv = fla(midconv)
+        model = tf.keras.Model(inputs=[input_], outputs=[output])
+        opt = tf.keras.optimizers.Nadam(learning_rate=hp.Float('learning_rate', min_value=0.0001, max_value=0.01, step=0.00005))
 
-    for n in range(0, nlength):
-        bn = tf.keras.layers.BatchNormalization()
-        midlayer = tf.keras.layers.Dense(nwidth, activation='leaky_relu', kernel_initializer='he_normal', use_bias=False)
-        do = tf.keras.layers.Dropout(rate=hp.Float('dropout_rate', min_value=0.0, max_value=0.6, step=0.05))
+        model.compile(loss='sparse_categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
 
-        if n == 0:
-            mid = do(midlayer(bn(midconv)))
-        else:
-            mid = do(midlayer(bn(mid)))
-
-    outputlayer = tf.keras.layers.Dense(noutputs, activation='softmax')
-
-    output = outputlayer(mid)
-
-    model = tf.keras.Model(inputs=[input_], outputs=[output])
-    opt = tf.keras.optimizers.Nadam(learning_rate=hp.Float('learning_rate', min_value=0.0001, max_value=0.01, step=0.00005))
-
-    model.compile(loss='sparse_categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
-
-    return model
+        return model
 
 
 def main():
 
     (X_train, y_train), (X_test, y_test) = tf.keras.datasets.cifar10.load_data()
 
-    modelbuilderparc = functools.partial(modelbuilder, ninputs=X_train[0].shape, noutputs=len(np.unique(y_train)))
-
     trials = 15
 
-    tuner = kt.Hyperband(hypermodel=modelbuilderparc,
+    tuner = kt.Hyperband(hypermodel=HyperNet(ninputs=X_train[0].shape, noutputs=len(np.unique(y_train))),
                          max_epochs=500,
                          factor=3,
                          hyperband_iterations=1,
@@ -89,7 +92,7 @@ def main():
 
     es = tf.keras.callbacks.EarlyStopping(patience=5, restore_best_weights=True)
 
-    tuner.search(X_train, y_train, batch_size=64, validation_data=(X_test, y_test), callbacks=[es], epochs=500, verbose=2)
+    tuner.search(X_train, y_train, batch_size=64, validation_data=(X_test, y_test), callbacks=[es], epochs=500)
 
     bestmodel = tuner.get_best_models(num_models=1)[0]
 
