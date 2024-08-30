@@ -51,6 +51,12 @@ class HyperNet(kt.HyperModel):
 
         input_ = tf.keras.layers.Input(shape=self.ninputs)
 
+        rf = tf.keras.layers.RandomFlip("horizontal")
+        rr = tf.keras.layers.RandomRotation(0.1)
+        rz = tf.keras.layers.RandomZoom(0.1)
+
+        input_ = rz(rr(rf(input_)))
+
         rsc = tf.keras.layers.Rescaling(scale=1 / 255)
         resc = rsc(input_)
 
