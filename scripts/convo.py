@@ -33,11 +33,11 @@ class HyperNet(kt.HyperModel):
         super().__init__()
 
     def build(self, hp):
-        nsteps = hp.Int('nsteps', min_value=3, max_value=5, step=1)
-        nlengthconv = hp.Int('nlengthconv', min_value=8, max_value=16, step=1)
-        kernelsize = hp.Int('kernelsize', min_value=2, max_value=5, step=1)
-        startkernelsize = hp.Int('startkernelsize', min_value=4, max_value=8, step=1)
-        filters = hp.Int('filters', min_value=80, max_value=120, step=2)
+        nsteps = hp.Int('nsteps', min_value=1, max_value=5, step=1)
+        nlengthconv = hp.Int('nlengthconv', min_value=4, max_value=12, step=2)
+        kernelsize = hp.Int('kernelsize', min_value=2, max_value=6, step=1)
+        startkernelsize = hp.Int('startkernelsize', min_value=4, max_value=10, step=2)
+        filters = hp.Int('filters', min_value=80, max_value=120, step=5)
         scale = hp.Boolean('scale')
         filterscale = hp.Float('filterscale', min_value=2.0, max_value=4.0, step=0.2)
         padding = hp.Choice('padding', ['valid', 'same'])
@@ -99,7 +99,7 @@ class HyperNet(kt.HyperModel):
         output = outputlayer(lastdo(mid))
 
         model = tf.keras.Model(inputs=[input_], outputs=[output])
-        opt = tf.keras.optimizers.Nadam(learning_rate=hp.Float('learning_rate', min_value=0.01, max_value=0.1, step=0.01))
+        opt = tf.keras.optimizers.Nadam(learning_rate=hp.Float('learning_rate', min_value=0.001, max_value=0.01, step=0.001))
 
         model.compile(loss='sparse_categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
 
@@ -126,7 +126,7 @@ def main():
                                     project_name='Convo',
                                     seed=47)
 
-    rlr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5, min_lr=0.0001)
+    rlr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5, min_lr=0.00001)
     es = tf.keras.callbacks.EarlyStopping(patience=15, restore_best_weights=True)
     kwa = KillWhenLowAcc(minaccuracy=[0.2, 0.5, 0.75], epoch=[2, 14, 29])
 
